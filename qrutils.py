@@ -137,8 +137,9 @@ class QRCode:
                 for j in range(0, len(matrix[i])):
                     data += str(matrix[i][j])
 
-            self.log.print("Data:{0}\tBit42:{1}".format(list(data[i * 8:(i + 1) * 8] for i in range(8)), data[42]))
+            # self.log.print("Data:{0}\tBit42:{1}".format(list(data[i * 8:(i + 1) * 8] for i in range(8)), data[42]))
             if (int(data, 2) & int(self.rep, 2)) == int(self.rep, 2) and (int(data[42]) == 0):
+                self.log.print("Data:{0}\tBit42:{1}".format(list(data[i * 8:(i + 1) * 8] for i in range(8)), data[42]))
                 break
             else:
                 # print("Rotate matrix")
@@ -170,8 +171,8 @@ class QRCode:
 
     def read_image(self, filepath):
         img = Image.open(r"{0}".format(filepath))
-        img = QRImage.to_bw(img, 150)
-        return self.np_to_matrix(np.array(img))
+        img = QRImage.to_bw(np.array(img), 150)
+        return self.np_to_matrix(img)
 
     def np_to_matrix(self, img):  # this method works with NP array
         img = cv2.resize(img, dsize=(100 * self.dim, 100 * self.dim), interpolation=cv2.INTER_CUBIC)

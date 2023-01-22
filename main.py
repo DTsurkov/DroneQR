@@ -7,9 +7,11 @@ import serial
 
 import ringHelper
 import qrutils
+import prettyPrint as pp
 
 
 def main():
+    log = pp.Log("Main")
     cap = cv2.VideoCapture(0)
     # ser = serial.Serial(ringHelper.get_serial(), 115200)
     qr = qrutils.QRCode()
@@ -25,12 +27,12 @@ def main():
             if read_data == -1:
                 qrutils.QREvents.play_sound_qr('wrong.mp3')
                 # qrutils.QREvents.ring_fail(ser)
-                print("Matrix not valid")
+                log.print("Matrix not valid")
             else:
                 qrutils.QREvents.play_sound_qr('Sound.mp3')
-                print("Data:{0}".format(read_data))
+                log.print("Data:{0}".format(read_data))
                 # qrutils.QREvents.ring_pass_async(ser)
-            time.sleep(.5)
+                time.sleep(.5)
         if cv2.waitKey(1) == ord("q"):
             break
     # ser.close()
