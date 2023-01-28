@@ -1,124 +1,250 @@
-from PIL import Image, ImageDraw
+import math
+import os
+import os.path
+import time
+import threading
+from playsound import playsound
+
 import cv2
 import numpy as np
+from PIL import Image, ImageDraw  # only for creation test images!
 
-class GenDataNotValid(Exception):
-    def __init__(self, message="DataNotValid. Must be le 15"):
-        self.message = message
-        super().__init__(self.message)
-
-    pass
+import exhelper as ex
+import prettyPrint as pp
 
 
-class MatrixDataNotValid(Exception):
-    def __init__(self, message="MatrixDataNotValid. Dimension must be eq 3"):
-        self.message = message
-        super().__init__(self.message)
+class ImgHelper:
+    @staticmethod
+    def to_bw(img, threshold=150):
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)  # set grayscale image
+        thresh1, img = cv2.threshold(gray, threshold, 255, 0)  # threshold it
+        return img
 
-    pass
+    @staticmethod
+    def crop_np_img(img, nparray):
+        rect = cv2.boundingRect(nparray)
+        x, y, w, h = rect
+        cropped = img[y:y + h, x:x + w].copy()
+        nparray = nparray - nparray.min(axis=0)
+
+        mask = np.zeros(cropped.shape[:2], np.uint8)
+        cv2.drawContours(mask, [nparray], -1, (255, 255, 255), -1, cv2.LINE_AA)
+
+        dst = cv2.bitwise_and(cropped, cropped, mask=mask)
+
+        bg = np.ones_like(cropped, np.uint8) * 255
+        cv2.bitwise_not(bg, bg, mask=mask)
+        dst2 = bg + dst
+
+        return dst2
+
+    @staticmethod
+    def find_square_contours(img):
+        contours, hierarchy = cv2.findContours(img, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+        need_contours = []
+        # find all squares:
+        for cnt in contours:
+            approx = cv2.approxPolyDP(cnt, 0.01 * cv2.arcLength(cnt, True), True)
+            if len(approx) == 4:
+                x, y, w, h = cv2.boundingRect(cnt)
+                ratio = float(w) / h
+                if 0.8 <= ratio <= 1.2:
+                    need_contours.append(cnt)
+        # find all squares with right sizes:
+        contours = []
+        for cnt in need_contours:
+            for cnt2 in need_contours:
+                x, y, w, h = cv2.boundingRect(cnt)
+                x1, y1, w1, h1 = cv2.boundingRect(cnt2)
+                r1 = w / w1 / 6 * 8
+                r2 = h / h1 / 6 * 8
+                if 0.9 <= r1 <= 1.1 and 0.9 <= r2 <= 1.1:
+                    dx = abs((x + w) / 2 - (x1 + w1) / 2)
+                    dy = abs((y + h) / 2 - (y1 + h1) / 2)
+                    if dx < 50 and dy < 50:  # contours should be axial
+                        contours.append(cnt2)
+        return contours
+
+    @staticmethod
+    def get_contour_points(contour):
+        return cv2.approxPolyDP(contour, 0.01 * cv2.arcLength(contour, True), True)
+
+    @staticmethod
+    def warp_perspective(pts_src, img):
+        pts_src_d = int(
+            math.sqrt((pts_src[0][0][0] - pts_src[1][0][0]) ** 2 + (pts_src[1][0][0] - pts_src[1][0][1]) ** 2))
+        pts_dst = np.array([[pts_src_d, 0], [pts_src_d, pts_src_d], [0, pts_src_d], [0, 0]])
+        h, status = cv2.findHomography(pts_src, pts_dst)
+        return cv2.warpPerspective(img, h, (pts_src_d, pts_src_d))
+
+    @staticmethod
+    def find_qr_code(img):
+        img = ImgHelper.to_bw(img, 150)
+        contours = ImgHelper.find_square_contours(img)  # find contours QR
+
+        img_out = None
+        if len(contours) != 0:
+            # self.log.print(f"Number of contours selected:{len(contours)}")
+            pts_src = ImgHelper.get_contour_points(contours[0])
+            img_qr = ImgHelper.crop_np_img(img, pts_src)
+            cnt = ImgHelper.find_square_contours(img_qr)  # this contours should be contains inner contours
+            if len(cnt) != 0:
+                pts_src = ImgHelper.get_contour_points(contours[0])
+                img_out = ImgHelper.warp_perspective(pts_src, img)
+
+        return img_out
 
 
-def gen(data=0, outfile="out.png", size=100, dim = 8):
-    canvas = (size * dim, size * dim)
-    matrix = encode(data)
-    print(matrix)
-    img = Image.new("RGB", canvas, (255, 255, 255, 255))
-    draw = ImageDraw.Draw(img)
-    for i in range(0, len(matrix)):
-        for j in range(0, len(matrix[i])):
-            if matrix[j][i] == '1':
-                color = "black"
-            else:
-                color = "white"
-            draw.rectangle((j * size, i * size, size + j * size, size + i * size), fill=color)
-    img.save(outfile)
-    #print("Bin: {0}".format(matrix))
+class QRCode:
+    log = pp.Log("QRCode")
 
-
-def encode(data=0, dim=8):
-    if data > 15:
-        raise GenDataNotValid
-    data = ((int('1100', 2) & data) << (dim*3+1)) | ((int('0011', 2) & data ) << (dim*4+3))
+    # base matrix for QR:
     rep = '11111111'
     rep += '10000001'
     rep += '10111101'
-
     rep += '10100101'
     rep += '10100101'
-
-    rep += '10111101'
+    rep += '10011101'
     rep += '10000001'
     rep += '11111111'
-    array = (bin(data | int(rep, 2))).replace("0b", "")
-    #array = (bin(data)).replace("0b", "")
-    matrix = [array[i*dim:(i+1)*dim] for i in range(dim)]
-    return matrix
 
+    def __init__(self, dim=8, bits=4):
+        self.log.print("QRCode object has been created")
+        self.dim = dim  # matrix dimension
+        self.bits = bits  # number of info bits
+        self.validate_dim()
 
-def decode(matrix):
-    if len(matrix) != 3 or len(matrix[1]) != 3:
-        raise MatrixDataNotValid
+    def validate_dim(self):
+        if self.dim != 8 or self.bits != 4:
+            raise ex.MatrixDimensionNotValid
 
-    data = ""
-    for i in range(0, len(matrix)):
-        for j in range(0, len(matrix[i])):
-            data += str(matrix[i][j])
+    def __del__(self):
+        self.log.print("QRCode object has been deleted")
 
-    data = (bin(int(data,2) - int('111100100', 2))).replace("0b", "")
-    data = ((int('11000', 2) & int(data,2)) >> 1) | (int('00011', 2) & int(data,2))
-    return data
+    def set_base_matrix(self, base_matrix):
+        self.log.print("Base matrix has been set")
+        self.rep = base_matrix
 
+    def encode(self, data):
+        if data > 15:
+            raise ex.GenDataNotValid
 
-def to_bw(img,  threshold=200):
-    tf = lambda x: 255 if x > threshold else 0
-    return img.convert('L').point(tf, mode='1')
+        data = ((int('1100', 2) & data) << (self.dim * 3 + 1)) | \
+               ((int('0011', 2) & data) << (self.dim * 4 + 3))
+        array = (bin(data | int(self.rep, 2))).replace("0b", "")
+        matrix = [array[i * self.dim:(i + 1) * self.dim] for i in range(self.dim)]
+        return matrix
 
+    def decode(self, matrix):
+        if len(matrix) != self.dim or len(matrix[1]) != self.dim:
+            raise ex.MatrixDataNotValid
 
-def read(filepath):
-    img = Image.open(r"{0}".format(filepath))
-    bw = to_bw(img, 200)
-    bw = bw.resize((300, 300))
-    matrix = [ [0]*3 for i in range(3)]
-    for i in range(0, 3):
-        for j in range(0, 3):
-            if bw.getpixel((j*100+50, i*100+50)) == 0:
-                matrix[j][i] = 1
+        for angle in range(0, 6, 1):
+            matrix = list(zip(*matrix))[::-1]
+            data = ""
+            for i in range(0, len(matrix)):
+                for j in range(0, len(matrix[i])):
+                    data += str(matrix[i][j])
+
+            if (int(data, 2) & int(self.rep, 2)) == int(self.rep, 2) and (int(data[42]) == 0):
+                matrix_bin = list(data[i * 8:(i + 1) * 8] for i in range(8))
+                self.log.print(f"Matrix:{matrix_bin}\tBit42:{data[42]}")
+                break
             else:
-                matrix[j][i] = 0
-    return matrix
-    #bw.save("C_{0}".format(filepath))
+                # self.log.print("Rotate matrix")
+                pass
+            if angle > 3:
+                # self.log.print("Matrix not valid")
+                return -1
+
+        data = (bin(int(data, 2) - int(self.rep, 2))).replace("0b", "")
+        data = (int(data, 2) >> (self.dim * 3 + 1)) & int('1100', 2) | \
+               (int(data, 2) >> (self.dim * 4 + 3)) & int('0011', 2)
+        return data
+
+    def save_image(self, data=0, outfile="out.png", size=100):
+        canvas = (size * self.dim, size * self.dim)
+        matrix = self.encode(data)
+        self.log.print(matrix)
+        img = Image.new("RGB", canvas, (255, 255, 255, 255))
+        draw = ImageDraw.Draw(img)
+        for i in range(0, len(matrix)):
+            for j in range(0, len(matrix[i])):
+                if matrix[j][i] == '1':
+                    color = "black"
+                else:
+                    color = "white"
+                draw.rectangle((j * size, i * size, size + j * size, size + i * size), fill=color)
+        os.makedirs(os.path.dirname(outfile), exist_ok=True)
+        img.save(outfile)
+
+    def read_image(self, filepath):
+        img = Image.open(rf"{filepath}")
+        img = ImgHelper.to_bw(np.array(img), 150)
+        return self.np_to_matrix(img)
+
+    def np_to_matrix(self, img):  # this method works with NP array
+        img = cv2.resize(img, dsize=(100 * self.dim, 100 * self.dim), interpolation=cv2.INTER_CUBIC)
+        matrix = [[0] * self.dim for i in range(self.dim)]
+        for i in range(0, self.dim):
+            for j in range(0, self.dim):
+                if img[j * 100 + 50, i * 100 + 50] == 0:
+                    matrix[i][j] = 1
+                else:
+                    matrix[i][j] = 0
+        return matrix
+
+    def test_encoding(self, folder):
+        for i in range(16):
+            test_path = f"{folder}/{i}.png"
+            self.save_image(data=i, outfile=test_path)
+            matrix = self.read_image(test_path)
+            if self.decode(matrix) != i:
+                test_result = "Failed!"
+            else:
+                test_result = "Passed!"
+            print(f"{test_result}\tData:{self.decode(matrix)}\tMatrix:{matrix}")
 
 
-def test_encoding():
-    for i in range(16):
-        gen(i, "{0}.png".format(i))
-        matrix = read("{0}.png".format(i))
-        if decode(matrix) != i:
-            print("FAIL!")
-        else:
-            print("All ok. Data:{0}\tMatrix:{1}".format(decode(matrix), matrix))
+# class QRStreamReader:
+#     log = pp.Log("QRStreamReader")
+#
+#     def __init__(self, camera_id=0):
+#         self.CameraID = camera_id
+#         self.QRCode = QRCode()
+#         self.log.print(f"QRStreamReader with camera id {self.CameraID} has been created")
+#
+#     # def find_in_file(self, filepath, outfile="result.png"):
+#     #     img = cv2.imread(filepath)
+#     #     data = ImgHelper.find_qr_code(img)
+#     #     if data:
+#     #         matrix = ImgHelper.find_qr_code(data)
+#     #         read_data = QRCode().decode(matrix)
+#     #         print(f"Data:{read_data}\tMatrix:{matrix}")
+#     #     data.save(outfile)
 
 
-def find_qr_to_file(filepath,  templatepath='0.png',  outfile="result2.png",  threshold=.5):
-    img = cv2.imread(filepath)
-    #img = cv2.imread(filepath, cv2.IMREAD_GRAYSCALE)
-    #(thresh, im_bw) = cv2.threshold(img, 128, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
-    #thresh = 127
-    #img = cv2.threshold(img, thresh, 255, cv2.THRESH_BINARY)[1]
+class QREvents:
+    @staticmethod
+    def play_sound_qr(sound='Sound.mp3'):
+        threading.Thread(target=playsound, args=(sound,), daemon=True).start()
 
-    template = cv2.imread(templatepath)
+    @staticmethod
+    def ring_pass(ser):
+        ser.write(bytes("CGCG", 'utf-8'))
+        time.sleep(2)
+        ser.write(bytes("C0C0", 'utf-8'))
 
-    w, h = template.shape[:-1]
-    res = cv2.matchTemplate(img, template, cv2.TM_CCOEFF)
-    loc = np.where(res >= threshold)
+    @staticmethod
+    def ring_fail(ser):
+        ser.write(bytes("CRCR", 'utf-8'))
 
-    img_pil = Image.fromarray(img)
+    @staticmethod
+    def ring_pass_async(ser):
+        threading.Thread(target=QREvents.ring_pass, args=(ser,), daemon=True).start()
 
-    for pt in zip(*loc[::-1]):  # Switch collumns and rows
-        qrcode = img_pil.crop((pt[0], pt[1], pt[0] + w, pt[1] + h))
-        if qrcode:
-            qrcode.save(outfile)
 
 if __name__ == '__main__':
-    #find_qr_to_file("input.png")
-    test_encoding()
+    QRCode = QRCode()
+    QRCode.test_encoding('test')
+    # main()
