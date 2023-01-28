@@ -13,7 +13,7 @@ import exhelper as ex
 import prettyPrint as pp
 
 
-class QRImage:
+class ImgHelper:
     @staticmethod
     def to_bw(img, threshold=150):
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)  # set grayscale image
@@ -41,7 +41,7 @@ class QRImage:
     @staticmethod
     def find_square_contours(img):
         contours, hierarchy = cv2.findContours(img, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-        needcontours = []
+        need_contours = []
         # find all squares:
         for cnt in contours:
             approx = cv2.approxPolyDP(cnt, 0.01 * cv2.arcLength(cnt, True), True)
@@ -49,11 +49,11 @@ class QRImage:
                 x, y, w, h = cv2.boundingRect(cnt)
                 ratio = float(w) / h
                 if 0.8 <= ratio <= 1.2:
-                    needcontours.append(cnt)
+                    need_contours.append(cnt)
         # find all squares with right sizes:
         contours = []
-        for cnt in needcontours:
-            for cnt2 in needcontours:
+        for cnt in need_contours:
+            for cnt2 in need_contours:
                 x, y, w, h = cv2.boundingRect(cnt)
                 x1, y1, w1, h1 = cv2.boundingRect(cnt2)
                 r1 = w / w1 / 6 * 8
@@ -79,18 +79,18 @@ class QRImage:
 
     @staticmethod
     def find_qr_code(img):
-        img = QRImage.to_bw(img, 150)
-        contours = QRImage.find_square_contours(img)  # find contours QR
+        img = ImgHelper.to_bw(img, 150)
+        contours = ImgHelper.find_square_contours(img)  # find contours QR
 
         img_out = None
         if len(contours) != 0:
-            # self.log.print("Number of contours selected:", len(contours))
-            pts_src = QRImage.get_contour_points(contours[0])
-            img_qr = QRImage.crop_np_img(img, pts_src)
-            cnt = QRImage.find_square_contours(img_qr)  # this contours should be contains inner contours
+            # self.log.print(f"Number of contours selected:{len(contours)}")
+            pts_src = ImgHelper.get_contour_points(contours[0])
+            img_qr = ImgHelper.crop_np_img(img, pts_src)
+            cnt = ImgHelper.find_square_contours(img_qr)  # this contours should be contains inner contours
             if len(cnt) != 0:
-                pts_src = QRImage.get_contour_points(contours[0])
-                img_out = QRImage.warp_perspective(pts_src, img)
+                pts_src = ImgHelper.get_contour_points(contours[0])
+                img_out = ImgHelper.warp_perspective(pts_src, img)
 
         return img_out
 
@@ -108,13 +108,22 @@ class QRCode:
     rep += '10000001'
     rep += '11111111'
 
-    dim = 8  # matrix dimension
-
-    def __init__(self):
+    def __init__(self, dim=8, bits=4):
         self.log.print("QRCode object has been created")
+        self.dim = dim  # matrix dimension
+        self.bits = bits  # number of info bits
+        self.validate_dim()
+
+    def validate_dim(self):
+        if self.dim != 8 or self.bits != 4:
+            raise ex.MatrixDimensionNotValid
 
     def __del__(self):
         self.log.print("QRCode object has been deleted")
+
+    def set_base_matrix(self, base_matrix):
+        self.log.print("Base matrix has been set")
+        self.rep = base_matrix
 
     def encode(self, data):
         if data > 15:
@@ -137,15 +146,15 @@ class QRCode:
                 for j in range(0, len(matrix[i])):
                     data += str(matrix[i][j])
 
-            # self.log.print("Data:{0}\tBit42:{1}".format(list(data[i * 8:(i + 1) * 8] for i in range(8)), data[42]))
             if (int(data, 2) & int(self.rep, 2)) == int(self.rep, 2) and (int(data[42]) == 0):
-                self.log.print("Data:{0}\tBit42:{1}".format(list(data[i * 8:(i + 1) * 8] for i in range(8)), data[42]))
+                matrix_bin = list(data[i * 8:(i + 1) * 8] for i in range(8))
+                self.log.print(f"Matrix:{matrix_bin}\tBit42:{data[42]}")
                 break
             else:
-                # print("Rotate matrix")
+                # self.log.print("Rotate matrix")
                 pass
             if angle > 3:
-                # print("Matrix not valid")
+                # self.log.print("Matrix not valid")
                 return -1
 
         data = (bin(int(data, 2) - int(self.rep, 2))).replace("0b", "")
@@ -170,8 +179,8 @@ class QRCode:
         img.save(outfile)
 
     def read_image(self, filepath):
-        img = Image.open(r"{0}".format(filepath))
-        img = QRImage.to_bw(np.array(img), 150)
+        img = Image.open(rf"{filepath}")
+        img = ImgHelper.to_bw(np.array(img), 150)
         return self.np_to_matrix(img)
 
     def np_to_matrix(self, img):  # this method works with NP array
@@ -187,12 +196,14 @@ class QRCode:
 
     def test_encoding(self, folder):
         for i in range(16):
-            self.save_image(data=i, outfile="{0}/{1}.png".format(folder, i))
-            matrix = self.read_image("{0}/{1}.png".format(folder, i))
+            test_path = f"{folder}/{i}.png"
+            self.save_image(data=i, outfile=test_path)
+            matrix = self.read_image(test_path)
             if self.decode(matrix) != i:
-                print("FAIL! Data:{0}\tMatrix:{1}".format(self.decode(matrix), matrix))
+                test_result = "Failed!"
             else:
-                print("All ok. Data:{0}\tMatrix:{1}".format(self.decode(matrix), matrix))
+                test_result = "Passed!"
+            print(f"{test_result}\tData:{self.decode(matrix)}\tMatrix:{matrix}")
 
 
 # class QRStreamReader:
@@ -201,15 +212,15 @@ class QRCode:
 #     def __init__(self, camera_id=0):
 #         self.CameraID = camera_id
 #         self.QRCode = QRCode()
-#         self.log.print("QRStreamReader with camera id {0} has been created".format(self.CameraID))
+#         self.log.print(f"QRStreamReader with camera id {self.CameraID} has been created")
 #
 #     # def find_in_file(self, filepath, outfile="result.png"):
 #     #     img = cv2.imread(filepath)
-#     #     data = QRImage.find_qr_code(img)
+#     #     data = ImgHelper.find_qr_code(img)
 #     #     if data:
-#     #         matrix = QRImage.find_qr_code(data)
+#     #         matrix = ImgHelper.find_qr_code(data)
 #     #         read_data = QRCode().decode(matrix)
-#     #         print("Data:{0}\tMatrix:{1}".format(read_data, matrix))
+#     #         print(f"Data:{read_data}\tMatrix:{matrix}")
 #     #     data.save(outfile)
 
 

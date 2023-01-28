@@ -17,7 +17,7 @@ def main():
     qr = qrutils.QRCode()
     while True:
         _, img = cap.read()
-        data = qrutils.QRImage.find_qr_code(img)  # check if there is a QRCode in the image
+        data = qrutils.ImgHelper.find_qr_code(img)  # check if there is a QRCode in the image
         # time.sleep(.5)
         cv2.imshow("FrameOrig", imutils.resize(img, width=300))
         if data is not None:
@@ -30,7 +30,7 @@ def main():
                 log.print("Matrix not valid")
             else:
                 qrutils.QREvents.play_sound_qr('Sound.mp3')
-                log.print("Data:{0}".format(read_data))
+                log.print(f"Data:{read_data}")
                 # qrutils.QREvents.ring_pass_async(ser)
                 time.sleep(.5)
         if cv2.waitKey(1) == ord("q"):

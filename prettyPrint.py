@@ -13,7 +13,5 @@ class Log:
         return self.prefix
 
     def print(self, *objs, **kwargs):
-        builtins.print("[{0}][{1}]".format(
-            time.strftime("%H:%M:%S"),
-            self.prefix
-        ), *objs, **kwargs)
+        timestamp = time.strftime("%H:%M:%S")
+        builtins.print(f"[{timestamp}][{self.prefix}]", *objs, **kwargs)
