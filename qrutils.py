@@ -148,7 +148,7 @@ class QRCode:
 
             if (int(data, 2) & int(self.rep, 2)) == int(self.rep, 2) and (int(data[42]) == 0):
                 matrix_bin = list(data[i * 8:(i + 1) * 8] for i in range(8))
-                self.log.print(f"Matrix:{matrix_bin}\tBit42:{data[42]}")
+                # self.log.print(f"Matrix:{matrix_bin}\tBit42:{data[42]}")
                 break
             else:
                 # self.log.print("Rotate matrix")
@@ -203,25 +203,54 @@ class QRCode:
                 test_result = "Failed!"
             else:
                 test_result = "Passed!"
-            print(f"{test_result}\tData:{self.decode(matrix)}\tMatrix:{matrix}")
+            self.log.print(f"{test_result}\tData:{self.decode(matrix)}\tMatrix:{matrix}")
 
 
-# class QRStreamReader:
-#     log = pp.Log("QRStreamReader")
-#
-#     def __init__(self, camera_id=0):
-#         self.CameraID = camera_id
-#         self.QRCode = QRCode()
-#         self.log.print(f"QRStreamReader with camera id {self.CameraID} has been created")
-#
-#     # def find_in_file(self, filepath, outfile="result.png"):
-#     #     img = cv2.imread(filepath)
-#     #     data = ImgHelper.find_qr_code(img)
-#     #     if data:
-#     #         matrix = ImgHelper.find_qr_code(data)
-#     #         read_data = QRCode().decode(matrix)
-#     #         print(f"Data:{read_data}\tMatrix:{matrix}")
-#     #     data.save(outfile)
+class QRStreamReader(threading.Thread):
+    def __init__(self, camera_id=0, width=300):
+        self.CameraID = camera_id
+        self.log = pp.Log(f"QRStreamReader{self.CameraID}")
+        self.QRAnalyzer = QRCode()
+        self.cap = cv2.VideoCapture(self.CameraID)
+        self.QRCode = None
+        self.QRData = -1
+        self.RawImage = None
+        self.img_width = width
+        self._should_stop = False
+        # self._lock = threading.RLock()
+        threading.Thread.__init__(self)
+        self.setDaemon(True)  # for right shutting down app
+        self.log.print(f"QRStreamReader with camera id {self.CameraID} has been created")
+
+    def __del__(self):
+        self.cap.release()
+        self.log.print(f"QRStreamReader with camera id {self.CameraID} has been deleted")
+
+    def read_image(self):
+        _, self.RawImage = self.cap.read()
+        self.QRCode = ImgHelper.find_qr_code(self.RawImage)  # check if there is a QRCode in the image
+        if self.QRCode is not None:
+            matrix = self.QRAnalyzer.np_to_matrix(self.QRCode)
+            self.QRData = self.QRAnalyzer.decode(matrix)
+            if self.QRData == -1:
+                self.log.print("Matrix not valid")
+            else:
+                self.log.print(f"Data:{self.QRData}")
+        pass
+
+    def run(self):
+        self.log.print("Stream analyzer has been run")
+        try:
+            while not self._should_stop:
+                time.sleep(0)  # for control from other threads
+                self.read_image()
+        except (StopIteration, EOFError):
+            pass
+
+    def stop(self):
+        self._should_stop = True
+        while self.is_alive():
+            time.sleep(0.001)
 
 
 class QREvents:
@@ -242,6 +271,26 @@ class QREvents:
     @staticmethod
     def ring_pass_async(ser):
         threading.Thread(target=QREvents.ring_pass, args=(ser,), daemon=True).start()
+
+
+class QRSettings:
+    log = pp.Log("QRSettings")
+
+    def __init__(self,
+                 sound_ring_passed: str,
+                 sound_ring_failed: str,
+                 serial_speed: int,
+                 camera_id: [int]
+                 ):
+        if not os.path.exists(sound_ring_passed):
+            raise FileNotFoundError
+        self.sound_ring_passed = sound_ring_passed
+        if not os.path.exists(sound_ring_failed):
+            raise FileNotFoundError
+        self.sound_ring_failed = sound_ring_failed
+        self.serial_speed = serial_speed
+        self.camera_id = camera_id
+        self.log.print(f"Settings: {self.__dict__}")
 
 
 if __name__ == '__main__':
