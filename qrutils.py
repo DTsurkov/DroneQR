@@ -17,9 +17,21 @@ import prettyPrint as pp
 class ImgHelper:
     @staticmethod
     def to_bw(img, threshold=150):
+        img = ImgHelper.increase_contrast(img)
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)  # set grayscale image
         thresh1, img = cv2.threshold(gray, threshold, 255, 0)  # threshold it
         return img
+
+    @staticmethod
+    def increase_contrast(img, clip_limit=2.0, tile_grid_size=(8, 8)):
+        lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
+        l_channel, a, b = cv2.split(lab)  # split to channels
+        clahe = cv2.createCLAHE(clipLimit=clip_limit, tileGridSize=tile_grid_size)  # creating CLAHE
+        cl = clahe.apply(l_channel)  # Applying CLAHE to L-channel
+        l_img = cv2.merge((cl, a, b))  # merge the CLAHE enhanced L-channel with the a and b channel
+        enhanced_img = cv2.cvtColor(l_img, cv2.COLOR_LAB2BGR)  # convert back to BGR
+
+        return enhanced_img
 
     @staticmethod
     def crop_np_img(img, nparray):
@@ -208,7 +220,7 @@ class QRCode:
 
 
 class QRStreamReader(threading.Thread):
-    def __init__(self, camera_id=0, width=300, queue=None):
+    def __init__(self, camera_id=0, width=300, queue=None, dead_time=0.5):
         self.queue = queue
         self.CameraID = camera_id
         self.log = pp.Log(f"QRStreamReader{self.CameraID}")
@@ -224,15 +236,29 @@ class QRStreamReader(threading.Thread):
         threading.Thread.__init__(self)
         self.setDaemon(True)  # for right shutting down app
         self.log.print(f"QRStreamReader with camera id {self.CameraID} has been created")
+        self.is_locked = False
+        self.dead_time = dead_time
 
     def __del__(self):
         self.cap.release()
         self.log.print(f"QRStreamReader with camera id {self.CameraID} has been deleted")
 
+    def unlock_analyze(self):
+        # self.unlock_timer.cancel()
+        self.is_locked = False
+        self.log.print("Stream analyzer has been unlocked")
+
+    def lock_analyze(self):
+        unlock_timer = threading.Timer(interval=self.dead_time, function=lambda: self.unlock_analyze())
+        self.is_locked = True
+        self.log.print("Stream analyzer has been locked")
+        unlock_timer.start()
+
     def read_image(self):
         _, self.RawImage = self.cap.read()
+        # self.RawImage = ImgHelper.increase_contrast(self.RawImage)
         self.QRCode, self.BWImage = ImgHelper.find_qr_code(self.RawImage)  # check if there is a QRCode in the image
-        if self.QRCode is not None:
+        if self.QRCode is not None and not self.is_locked:
             matrix = self.QRAnalyzer.np_to_matrix(self.QRCode)
             self.QRData = self.QRAnalyzer.decode(matrix)
             if self.QRData == -1:
@@ -245,7 +271,8 @@ class QRStreamReader(threading.Thread):
                         'QRCode': self.QRCode,
                         'CameraID': self.CameraID
                     })
-                time.sleep(0.5)
+                # time.sleep(self.dead_time)
+                self.lock_analyze()
         pass
 
     def run(self):
