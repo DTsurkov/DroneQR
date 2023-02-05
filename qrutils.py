@@ -3,6 +3,7 @@ import os
 import os.path
 import time
 import threading
+# import queue
 from playsound import playsound
 
 import cv2
@@ -92,7 +93,7 @@ class ImgHelper:
                 pts_src = ImgHelper.get_contour_points(contours[0])
                 img_out = ImgHelper.warp_perspective(pts_src, img)
 
-        return img_out
+        return img_out, img
 
 
 class QRCode:
@@ -207,7 +208,8 @@ class QRCode:
 
 
 class QRStreamReader(threading.Thread):
-    def __init__(self, camera_id=0, width=300):
+    def __init__(self, camera_id=0, width=300, queue=None):
+        self.queue = queue
         self.CameraID = camera_id
         self.log = pp.Log(f"QRStreamReader{self.CameraID}")
         self.QRAnalyzer = QRCode()
@@ -215,6 +217,7 @@ class QRStreamReader(threading.Thread):
         self.QRCode = None
         self.QRData = -1
         self.RawImage = None
+        self.BWImage = None
         self.img_width = width
         self._should_stop = False
         # self._lock = threading.RLock()
@@ -228,7 +231,7 @@ class QRStreamReader(threading.Thread):
 
     def read_image(self):
         _, self.RawImage = self.cap.read()
-        self.QRCode = ImgHelper.find_qr_code(self.RawImage)  # check if there is a QRCode in the image
+        self.QRCode, self.BWImage = ImgHelper.find_qr_code(self.RawImage)  # check if there is a QRCode in the image
         if self.QRCode is not None:
             matrix = self.QRAnalyzer.np_to_matrix(self.QRCode)
             self.QRData = self.QRAnalyzer.decode(matrix)
@@ -236,6 +239,13 @@ class QRStreamReader(threading.Thread):
                 self.log.print("Matrix not valid")
             else:
                 self.log.print(f"Data:{self.QRData}")
+                if self.queue is not None:
+                    self.queue.put({
+                        'Data': self.QRData,
+                        'QRCode': self.QRCode,
+                        'CameraID': self.CameraID
+                    })
+                time.sleep(0.5)
         pass
 
     def run(self):
@@ -273,6 +283,18 @@ class QREvents:
         threading.Thread(target=QREvents.ring_pass, args=(ser,), daemon=True).start()
 
 
+def singleton(class_):
+    instances = {}
+
+    def getinstance(*args, **kwargs):
+        if class_ not in instances:
+            instances[class_] = class_(*args, **kwargs)
+        return instances[class_]
+
+    return getinstance
+
+
+@singleton
 class QRSettings:
     log = pp.Log("QRSettings")
 
@@ -284,13 +306,29 @@ class QRSettings:
                  ):
         if not os.path.exists(sound_ring_passed):
             raise FileNotFoundError
-        self.sound_ring_passed = sound_ring_passed
+        self._sound_ring_passed = sound_ring_passed
         if not os.path.exists(sound_ring_failed):
             raise FileNotFoundError
-        self.sound_ring_failed = sound_ring_failed
-        self.serial_speed = serial_speed
-        self.camera_id = camera_id
+        self._sound_ring_failed = sound_ring_failed
+        self._serial_speed = serial_speed
+        self._camera_id = camera_id
         self.log.print(f"Settings: {self.__dict__}")
+
+    @property
+    def camera_id(self):
+        return self._camera_id
+
+    @property
+    def serial_speed(self):
+        return self._serial_speed
+
+    @property
+    def sound_ring_failed(self):
+        return self._sound_ring_failed
+
+    @property
+    def sound_ring_passed(self):
+        return self._sound_ring_passed
 
 
 if __name__ == '__main__':
