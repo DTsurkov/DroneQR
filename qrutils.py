@@ -17,7 +17,7 @@ import prettyPrint as pp
 class ImgHelper:
     @staticmethod
     def to_bw(img, threshold=150):
-        img = ImgHelper.increase_contrast(img)
+        # img = ImgHelper.increase_contrast(img)
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)  # set grayscale image
         thresh1, img = cv2.threshold(gray, threshold, 255, 0)  # threshold it
         return img
@@ -91,8 +91,8 @@ class ImgHelper:
         return cv2.warpPerspective(img, h, (pts_src_d, pts_src_d))
 
     @staticmethod
-    def find_qr_code(img):
-        img = ImgHelper.to_bw(img, 150)
+    def find_qr_code(img, threshold=150):
+        img = ImgHelper.to_bw(img, threshold)
         contours = ImgHelper.find_square_contours(img)  # find contours QR
 
         img_out = None
@@ -226,6 +226,7 @@ class QRStreamReader(threading.Thread):
         self.log = pp.Log(f"QRStreamReader{self.CameraID}")
         self.QRAnalyzer = QRCode()
         self.cap = cv2.VideoCapture(self.CameraID)
+        # self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 3)  # set autoexposure
         self.QRCode = None
         self.QRData = -1
         self.RawImage = None
@@ -238,6 +239,7 @@ class QRStreamReader(threading.Thread):
         self.log.print(f"QRStreamReader with camera id {self.CameraID} has been created")
         self.is_locked = False
         self.dead_time = dead_time
+        self.threshold = 100
 
     def __del__(self):
         self.cap.release()
@@ -257,7 +259,7 @@ class QRStreamReader(threading.Thread):
     def read_image(self):
         _, self.RawImage = self.cap.read()
         # self.RawImage = ImgHelper.increase_contrast(self.RawImage)
-        self.QRCode, self.BWImage = ImgHelper.find_qr_code(self.RawImage)  # check if there is a QRCode in the image
+        self.QRCode, self.BWImage = ImgHelper.find_qr_code(self.RawImage, self.threshold)  # check if there is a QRCode in the image
         if self.QRCode is not None and not self.is_locked:
             matrix = self.QRAnalyzer.np_to_matrix(self.QRCode)
             self.QRData = self.QRAnalyzer.decode(matrix)
@@ -265,14 +267,15 @@ class QRStreamReader(threading.Thread):
                 self.log.print("Matrix not valid")
             else:
                 self.log.print(f"Data:{self.QRData}")
-                if self.queue is not None:
-                    self.queue.put({
-                        'Data': self.QRData,
-                        'QRCode': self.QRCode,
-                        'CameraID': self.CameraID
-                    })
-                # time.sleep(self.dead_time)
                 self.lock_analyze()
+            if self.queue is not None:
+                self.queue.put({
+                    'Data': self.QRData,
+                    'QRCode': self.QRCode,
+                    'CameraID': self.CameraID
+                })
+            # time.sleep(self.dead_time)
+
         pass
 
     def run(self):
@@ -297,17 +300,20 @@ class QREvents:
 
     @staticmethod
     def ring_pass(ser):
-        ser.write(bytes("CGCG", 'utf-8'))
-        time.sleep(2)
-        ser.write(bytes("C0C0", 'utf-8'))
+        if ser is not None:
+            ser.write(bytes("CGCG", 'utf-8'))
+            time.sleep(2)
+            ser.write(bytes("C0C0", 'utf-8'))
 
     @staticmethod
     def ring_fail(ser):
-        ser.write(bytes("CRCR", 'utf-8'))
+        if ser is not None:
+            ser.write(bytes("CRCR", 'utf-8'))
 
     @staticmethod
     def ring_pass_async(ser):
-        threading.Thread(target=QREvents.ring_pass, args=(ser,), daemon=True).start()
+        if ser is not None:
+            threading.Thread(target=QREvents.ring_pass, args=(ser,), daemon=True).start()
 
 
 def singleton(class_):

@@ -19,7 +19,10 @@ def main():  # it is a test main function. Just for QRcode recognition testing
         serial_speed=115200,
         camera_id=[0]
     )
-    # ser = serial.Serial(ringHelper.get_serial(), QSSettings.__getattribute__("serial_speed"))
+    try:
+        ser = serial.Serial(ringHelper.get_serial(), QSSettings.serial_speed)
+    except IndexError:
+        ser = None
 
     qr_streams = []
     for camera_id in QSSettings.camera_id:
@@ -39,10 +42,10 @@ def main():  # it is a test main function. Just for QRcode recognition testing
                 cv2.imshow(f"Code_{qr_stream.CameraID}", imutils.resize(data['QRCode'], width=300))
                 if data['Data'] == -1:
                     qrutils.QREvents.play_sound_qr(QSSettings.sound_ring_failed)
-                    # qrutils.QREvents.ring_fail(ser)
+                    qrutils.QREvents.ring_fail(ser)
                 else:
                     qrutils.QREvents.play_sound_qr(QSSettings.sound_ring_passed)
-                    # qrutils.QREvents.ring_pass_async(ser)
+                    qrutils.QREvents.ring_pass_async(ser)
                     # time.sleep(.5)
         if cv2.waitKey(1) == ord("q"):
             for qr_stream in qr_streams:
