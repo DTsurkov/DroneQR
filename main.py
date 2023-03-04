@@ -8,6 +8,8 @@ import serial
 import ringHelper
 import qrutils
 import queue
+
+import camHelper
 import prettyPrint as pp
 
 
@@ -17,7 +19,8 @@ def main():  # it is a test main function. Just for QRcode recognition testing
         sound_ring_passed="Sound.mp3",
         sound_ring_failed="wrong.mp3",
         serial_speed=115200,
-        camera_id=[0]
+        # camera_id=[0]
+        camera_id=[camera[0] for camera in camHelper.get_cameras("VendorID_6380")]
     )
     try:
         ser = serial.Serial(ringHelper.get_serial(), QSSettings.serial_speed)
