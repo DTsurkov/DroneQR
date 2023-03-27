@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>QR Stream</title>
+</head>
+<body>
+    <h1>QR Stream</h1>
+    <table>
+        <thead>
+            <tr>
+                <th>RawImage</th>
+                <th>BWImage</th>
+                <th>LastQRCode</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for i in range(len) %}
+                <tr>
+                    <td><img src="{{ url_for('video_feed', stream_id=i, img_type='RawImage', _external=True) }}" width="80%"></td>
+                    <td><img src="{{ url_for('video_feed', stream_id=i, img_type='BWImage', _external=True) }}" width="80%"></td>
+                    <td><img src="{{ url_for('video_feed', stream_id=i, img_type='LastQRCode', _external=True) }}" width="100%"></td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</body>
+</html>
