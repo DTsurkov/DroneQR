@@ -16,6 +16,11 @@ import prettyPrint as pp
 
 class ImgHelper:
     @staticmethod
+    def square(size=300):
+        image = np.zeros((size, size, 3), np.uint8)
+        return image
+
+    @staticmethod
     def to_bw(img, threshold=150):
         # img = ImgHelper.increase_contrast(img)
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)  # set grayscale image
@@ -227,6 +232,8 @@ class QRStreamReader(threading.Thread):
         self.QRAnalyzer = QRCode()
         self.cap = cv2.VideoCapture(self.CameraID)
         # self.cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 3)  # set autoexposure
+        self.LastQRCode = ImgHelper.square(300)
+        self.LastQRData = -1
         self.QRCode = None
         self.QRData = -1
         self.RawImage = None
@@ -259,7 +266,8 @@ class QRStreamReader(threading.Thread):
     def read_image(self):
         _, self.RawImage = self.cap.read()
         # self.RawImage = ImgHelper.increase_contrast(self.RawImage)
-        self.QRCode, self.BWImage = ImgHelper.find_qr_code(self.RawImage, self.threshold)  # check if there is a QRCode in the image
+        self.QRCode, self.BWImage = ImgHelper.find_qr_code(self.RawImage,
+                                                           self.threshold)  # check if there is a QRCode in the image
         if self.QRCode is not None and not self.is_locked:
             matrix = self.QRAnalyzer.np_to_matrix(self.QRCode)
             self.QRData = self.QRAnalyzer.decode(matrix)
@@ -273,7 +281,9 @@ class QRStreamReader(threading.Thread):
                     'Data': self.QRData,
                     'QRCode': self.QRCode,
                     'CameraID': self.CameraID
-                })
+                }, block=False)
+                self.LastQRCode = self.QRCode
+                self.LastQRData = self.QRData
             # time.sleep(self.dead_time)
 
         pass
@@ -331,12 +341,15 @@ def singleton(class_):
 class QRSettings:
     log = pp.Log("QRSettings")
 
-    def __init__(self,
-                 sound_ring_passed: str,
-                 sound_ring_failed: str,
-                 serial_speed: int,
-                 camera_id: [int]
-                 ):
+    def __init__(self):
+        pass
+
+    def config(self,
+               sound_ring_passed: str,
+               sound_ring_failed: str,
+               serial_speed: int,
+               camera_id: [int]
+               ):
         if not os.path.exists(sound_ring_passed):
             raise FileNotFoundError
         self._sound_ring_passed = sound_ring_passed

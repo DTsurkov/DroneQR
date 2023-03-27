@@ -15,12 +15,14 @@ import prettyPrint as pp
 
 def main():  # it is a test main function. Just for QRcode recognition testing
     # log = pp.Log("Main")
-    QSSettings = qrutils.QRSettings(
+    QSSettings = qrutils.QRSettings()
+
+    QSSettings.config(
         sound_ring_passed="Sound.mp3",
         sound_ring_failed="wrong.mp3",
         serial_speed=115200,
-        # camera_id=[0]
-        camera_id=[camera[0] for camera in camHelper.get_cameras("VendorID_6380")]
+        camera_id=[0]
+        # camera_id=[camera[0] for camera in camHelper.get_cameras("VendorID_6380")]
     )
     try:
         ser = serial.Serial(ringHelper.get_serial(), QSSettings.serial_speed)
@@ -29,7 +31,7 @@ def main():  # it is a test main function. Just for QRcode recognition testing
 
     qr_streams = []
     for camera_id in QSSettings.camera_id:
-        qr_streams.append(qrutils.QRStreamReader(camera_id=camera_id, queue=queue.Queue()))
+        qr_streams.append(qrutils.QRStreamReader(camera_id=camera_id, queue=queue.Queue(maxsize=10)))
 
     for qr_stream in qr_streams:
         qr_stream.start()
