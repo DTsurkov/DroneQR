@@ -16,8 +16,8 @@
         <tbody>
             {% for i in range(len) %}
                 <tr>
-                    <td><img src="{{ url_for('video_feed', stream_id=i, img_type='RawImage', _external=True) }}" width="80%"></td>
-                    <td><img src="{{ url_for('video_feed', stream_id=i, img_type='BWImage', _external=True) }}" width="80%"></td>
+                    <td><img src="{{ url_for('video_feed', stream_id=i, img_type='RawImage', _external=True) }}" width="100%"></td>
+                    <td><img src="{{ url_for('video_feed', stream_id=i, img_type='BWImage', _external=True) }}" width="100%"></td>
                     <td><img src="{{ url_for('video_feed', stream_id=i, img_type='LastQRCode', _external=True) }}" width="100%"></td>
                 </tr>
             {% endfor %}

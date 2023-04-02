@@ -8,6 +8,7 @@ import serial
 import ringHelper
 import qrutils
 import queue
+import camHelper
 import prettyPrint as pp
 
 import flask
